@@ -1,0 +1,5 @@
+terraform.tfstate.backup
+.terraform.*
+.terraform/*
+~/tmp/sdlc1-cpbu.tfstate
+terraform.tfstate
