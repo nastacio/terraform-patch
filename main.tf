@@ -222,7 +222,7 @@ resource "aws_security_group" "sdlc1_squid_tls_sg" {
 }
 
 resource "aws_key_pair" "deployer" {
-  key_name   = "deployer-key"
+  # key_name   = "deployer-key"
   public_key = file("${var.ssh_public_key}")
 
   tags = {
@@ -267,7 +267,7 @@ resource "aws_instance" "sdlc1_bastion_instance" {
   provisioner "remote-exec" {
     inline = [
       "chmod +x /tmp/install-squid.sh",
-      "/tmp/install-squid.sh ${var.bastion_hostname} ${var.registry_username} ${var.registry_password} ${var.rhsm_username} ${var.rhsm_password} '${var.rhel_pull_secret}' > /tmp/log1.txt 2>&1",
+      "sudo /tmp/install-squid.sh ${var.rhsm_username} ${var.rhsm_password} | grep -v username | grep -v password > /tmp/install-squid.txt 2>&1",
     ]
   }
 

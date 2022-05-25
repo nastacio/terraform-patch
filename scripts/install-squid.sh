@@ -2,6 +2,9 @@
 
 set -x
 
+: "${rhsm_username:=${1}}"
+: "${rhsm_password:=${2}}"
+
 : "${squid_http_port:=3128}
 : "${squid_https_port:=5555}
 
@@ -30,10 +33,6 @@ regiter_rhsm() {
 #
 #
 function install_squid() {
-    # To mount data disk
-    # https://docs.microsoft.com/en-us/azure/virtual-machines/linux/add-disk
-
-    # https://access.redhat.com/documentation/en-us/openshift_container_platform/4.10/html-single/installing/index#installing-mirroring-creating-registry
 
     # https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/8/html/deploying_different_types_of_servers/configuring-the-squid-caching-proxy-server_deploying-different-types-of-servers
     # Install Squid
@@ -47,16 +46,12 @@ function install_squid() {
     && dnf install certbot python3-certbot-apache -y \
     && dnf install firewalld -y \
     && systemctl start firewalld \
-    && firewall-cmd --zone=public --add-port=3128/tcp \
-    && firewall-cmd --reload \
-    && firewall-cmd --zone=public --add-port=5555/tcp \
-    /usr/lib64/squid/security_file_certgen -c -s /var/spool/squid/ssl_db -M 4MB \
     || result=1
 
-    iptables-save | grep 3128 \
+    # iptables-save | grep 3128 \
 
     # https://elatov.github.io/2019/01/using-squid-to-proxy-ssl-sites/
-    # certbot certonly --standalone --preferred-challenges http --http-01-port 80 --deploy-hook 'systemctl reload squid' -d "bastion.${BASE_DOMAIN}" --test-cert
+    # certbot certonly --standalone --preferred-challenges http --http-01-port 80 --deploy-hook 'systemctl reload squid' -d "sdlc1-bastion.${BASE_DOMAIN}" --test-cert -m dnastaci@us.ibm.com --agree-tos -n
 
     # Reverse proxy
     # https://access.redhat.com/solutions/36303
@@ -73,11 +68,19 @@ function install_squid() {
 #
 #
 function configure_squid() {
-
+    firewall-cmd --zone=public --add-port=3128/tcp \
+    && firewall-cmd --reload \
+    && firewall-cmd --zone=public --add-port=5555/tcp \
+    && if [ ! -e /var/spool/squid/ssl_db ]; then
+            /usr/lib64/squid/security_file_certgen -c -s /var/spool/squid/ssl_db -M 4MB
+    fi \
+    || result=1
 }
 
 if [ -f /etc/redhat-release ]; then
     regiter_rhsm || exit $?
 fi
 
-install_squid || exit $?
+install_squid \
+&& configure_squid \
+|| exit $?
