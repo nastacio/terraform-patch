@@ -5,31 +5,25 @@ set -x
 : "${quay_hostname:=${1}}"
 : "${registry_user:=${2}}"
 : "${registry_pwd:=${3}}"
-: "${rhsm_username:=${4}}"
-: "${rhsm_password:=${5}}"
-: "${rhel_pull_secret:=${6}}"
+: "${rhel_pull_secret:=${4}}"
 
-: "${quay_url:=${quay_hostname}:8443}"
+: "${quay_url:=localhost:8443}"
+
 
 #
 #
 #
-regiter_rhsm() {
-    echo "INFO: Registering the RHEL system"
-    sudo subscription-manager register \
-        --username "${rhsm_username}" \
-        --password "${rhsm_password}" \
-         --auto-attach ||
-    {
-        echo "ERROR: Unable to register the system"
-        return 1
-    }
+function install_podman() {
+    dnf install -y @container-tools \
+    && podman version \
+    || return 1
 }
 
+
 #
 #
 #
-create_quay() {
+function create_quay() {
     result=0
 
     ir_install_path=/data/quay/install
@@ -102,8 +96,6 @@ create_quay() {
     return ${result}
 }
 
-if [ -f /etc/redhat-release ]; then
-    regiter_rhsm || exit $?
-fi
-
-create_quay || exit $?
+install_podman \
+&& create_quay \
+|| exit $?

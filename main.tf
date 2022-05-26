@@ -16,6 +16,11 @@ terraform {
   required_version = ">= 0.14.9"
 }
 
+variable "cert_owner" {
+  description = "Email of the account owner at LetsEncrypt."
+  nullable    = false
+  type        = string
+}
 variable "registry_username" {
   description = "Mirrored registry username."
   nullable    = false
@@ -51,6 +56,11 @@ variable "bastion_hostname" {
   nullable    = false
   type        = string
 }
+variable "quay_hostname" {
+  description = "Hostname for the quay server."
+  nullable    = false
+  type        = string
+}
 variable "ssh_public_key" {
   description = "File name containing public SSH key added to all instances created with this plan."
   nullable    = false
@@ -59,6 +69,7 @@ variable "ssh_public_key" {
 variable "ssh_private_key" {
   description = "File name containing private SSH key used for remote execution on instances."
   nullable    = false
+  sensitive   = true
   type        = string
 }
 variable "route_53_zone_id" {
@@ -221,6 +232,31 @@ resource "aws_security_group" "sdlc1_squid_tls_sg" {
   }
 }
 
+resource "aws_security_group" "sdlc1_registry_tls_sg" {
+  name   = "allow-registry-tls-sg"
+  vpc_id = aws_vpc.sdlc1_vpc.id
+  ingress {
+    cidr_blocks = [
+      "0.0.0.0/0"
+    ]
+    from_port = 8443
+    to_port   = 8443
+    protocol  = "tcp"
+  }
+  // Terraform removes the default rule
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "sdlc1-registry-tls-sg"
+  }
+}
+
+
 resource "aws_key_pair" "deployer" {
   # key_name   = "deployer-key"
   public_key = file("${var.ssh_public_key}")
@@ -234,42 +270,76 @@ resource "aws_key_pair" "deployer" {
 #
 #
 resource "aws_route53_record" "bastion-dns" {
-  zone_id = data.aws_route53_zone.dns_zone.zone_id
-  name    = var.bastion_hostname
-  type    = "A"
-  ttl     = "300"
-  records = [aws_eip.sdlc1_lb.public_ip]
+  allow_overwrite = true
+  zone_id         = data.aws_route53_zone.dns_zone.zone_id
+  name            = var.bastion_hostname
+  type            = "A"
+  ttl             = "300"
+  records         = [aws_eip.sdlc1_lb.public_ip]
 }
 
-# Create bastion instance in the VPC
-resource "aws_instance" "sdlc1_bastion_instance" {
-  ami               = "ami-0b0af3577fe5e3532"
+
+#
+# Create registry instance in the VPC
+#
+resource "aws_network_interface" "sdlc1_registry_nic" {
+  subnet_id  = aws_subnet.sdlc1_subnet.id
+  private_ip = cidrhost(aws_subnet.sdlc1_subnet.cidr_block, 1)
+  security_groups = [
+    aws_security_group.sdlc1_ssh_sg.id,
+    aws_security_group.sdlc1_squid_tls_sg.id
+  ]
+  attachment {
+    instance     = aws_instance.registry_instance.id
+    device_index = 1
+  }
+  tags = {
+    Name = "sdlc1-registry-nic"
+  }
+}
+resource "aws_instance" "registry_instance" {
+  # RHEL 8.4
+  ami = "ami-0b0af3577fe5e3532"
+
   availability_zone = "us-east-1a"
 
   # Establishes connection to be used by all
   # generic remote provisioners (i.e. file/remote-exec)
   # https://www.terraform.io/language/resources/provisioners/connection
-  connection {
-    private_key = file("${var.ssh_private_key}")
-    host        = self.public_ip
-    type        = "ssh"
-    user        = "ec2-user"
-  }
-
   key_name      = aws_key_pair.deployer.key_name
   instance_type = "c6a.large"
 
-  provisioner "file" {
-    source      = "scripts/install-squid.sh"
-    destination = "/tmp/install-squid.sh"
+  root_block_device {
+    delete_on_termination = true
+    tags = {
+      Name = "sdlc1-registry-block"
+    }
+    volume_size = 256
+    volume_type = "gp2"
   }
+  subnet_id = aws_subnet.sdlc1_subnet.id
+  vpc_security_group_ids = [
+    aws_security_group.sdlc1_ssh_sg.id,
+    aws_security_group.sdlc1_registry_tls_sg.id
+  ]
 
-  provisioner "remote-exec" {
-    inline = [
-      "chmod +x /tmp/install-squid.sh",
-      "sudo /tmp/install-squid.sh ${var.rhsm_username} ${var.rhsm_password} | grep -v username | grep -v password > /tmp/install-squid.txt 2>&1",
-    ]
+  tags = {
+    Name = "sdlc1-registry"
   }
+}
+
+# Create bastion instance in the VPC
+resource "aws_instance" "bastion_instance" {
+  # RHEL 8.4
+  ami = "ami-0b0af3577fe5e3532"
+
+  availability_zone = "us-east-1a"
+
+  # Establishes connection to be used by all
+  # generic remote provisioners (i.e. file/remote-exec)
+  # https://www.terraform.io/language/resources/provisioners/connection
+  key_name      = aws_key_pair.deployer.key_name
+  instance_type = "c6a.large"
 
   subnet_id = aws_subnet.sdlc1_subnet.id
   vpc_security_group_ids = [
@@ -288,7 +358,7 @@ resource "aws_instance" "sdlc1_bastion_instance" {
 #
 #
 resource "aws_eip" "sdlc1_lb" {
-  instance = aws_instance.sdlc1_bastion_instance.id
+  instance = aws_instance.bastion_instance.id
   vpc      = true
 
   tags = {
@@ -316,4 +386,78 @@ resource "aws_route_table" "sdlc1_vpc_route_table" {
 resource "aws_route_table_association" "subnet_association" {
   subnet_id      = aws_subnet.sdlc1_subnet.id
   route_table_id = aws_route_table.sdlc1_vpc_route_table.id
+}
+
+resource "null_resource" "configure-registry" {
+  connection {
+    private_key = file("${var.ssh_private_key}")
+    host        = aws_instance.registry_instance.public_ip
+    type        = "ssh"
+    user        = "ec2-user"
+  }
+
+  provisioner "file" {
+    source      = "scripts/install-quay.sh"
+    destination = "/tmp/install-quay.sh"
+  }
+
+  provisioner "file" {
+    source      = "scripts/register-rhel.sh"
+    destination = "/tmp/register-rhel.sh"
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "chmod +x /tmp/register-rhel.sh",
+      "sudo /tmp/register-rhel.sh ${var.rhsm_username} ${var.rhsm_password} | grep -v username | grep -v password > /tmp/register-rhel.txt 2>&1",
+    ]
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "chmod +x /tmp/install-quay.sh",
+      "sudo /tmp/install-quay.sh ${var.quay_hostname} ${var.registry_username} ${var.registry_password} ${var.rhel_pull_secret} | grep -v username | grep -v password > /tmp/install-quay.txt 2>&1",
+    ]
+  }
+}
+
+# https://www.devopsschool.com/blog/how-to-run-provisioners-code-after-resources-is-created-in-terraform/
+resource "null_resource" "configure-squid" {
+  # depends_on = [aws_instance.bastion_instance]
+
+  connection {
+    private_key = file("${var.ssh_private_key}")
+    host        = aws_instance.bastion_instance.public_ip
+    type        = "ssh"
+    user        = "ec2-user"
+  }
+
+  provisioner "file" {
+    source      = "conf/squid.conf"
+    destination = "/tmp/squid.conf"
+  }
+
+  provisioner "file" {
+    source      = "scripts/register-rhel.sh"
+    destination = "/tmp/register-rhel.sh"
+  }
+
+  provisioner "file" {
+    source      = "scripts/install-squid.sh"
+    destination = "/tmp/install-squid.sh"
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "chmod +x /tmp/register-rhel.sh",
+      "sudo /tmp/register-rhel.sh ${var.rhsm_username} ${var.rhsm_password} | grep -v username | grep -v password > /tmp/register-rhel.txt 2>&1",
+    ]
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "chmod +x /tmp/install-squid.sh",
+      "sudo /tmp/install-squid.sh ${var.bastion_hostname} 1.1.1.1 ${var.cert_owner} | grep -v username | grep -v password > /tmp/install-squid.txt 2>&1",
+    ]
+  }
 }
