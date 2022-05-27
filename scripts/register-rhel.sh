@@ -2,8 +2,9 @@
 
 set -x
 
-: "${rhsm_username:=${1}}"
-: "${rhsm_password:=${2}}"
+: "${system_name:=${1}}"
+: "${rhsm_username:=${2}}"
+: "${rhsm_password:=${3}}"
 
 #
 #
@@ -13,6 +14,7 @@ function register_rhsm() {
     subscription_status=$(subscription-manager list | grep "^Status:" | tr -d " " | cut -d ":" -f 2)
     if [ "${subscription_status}" != "Subscribed" ]; then
         subscription-manager register \
+            --name="${system_name}" \
             --username "${rhsm_username}" \
             --password "${rhsm_password}" \
             --auto-attach ||

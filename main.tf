@@ -16,67 +16,7 @@ terraform {
   required_version = ">= 0.14.9"
 }
 
-variable "cert_owner" {
-  description = "Email of the account owner at LetsEncrypt."
-  nullable    = false
-  type        = string
-}
-variable "registry_username" {
-  description = "Mirrored registry username."
-  nullable    = false
-  sensitive   = true
-  type        = string
-}
-variable "registry_password" {
-  description = "Mirrored registry password."
-  nullable    = false
-  sensitive   = true
-  type        = string
-}
-variable "rhsm_username" {
-  description = "Red Hat subscription username."
-  nullable    = false
-  sensitive   = true
-  type        = string
-}
-variable "rhel_pull_secret" {
-  description = "Red Hat Image Pull secret."
-  nullable    = false
-  sensitive   = true
-  type        = string
-}
-variable "rhsm_password" {
-  description = "Red Hat subscription password."
-  nullable    = false
-  sensitive   = true
-  type        = string
-}
-variable "bastion_hostname" {
-  description = "Hostname for the bastion server."
-  nullable    = false
-  type        = string
-}
-variable "quay_hostname" {
-  description = "Hostname for the quay server."
-  nullable    = false
-  type        = string
-}
-variable "ssh_public_key" {
-  description = "File name containing public SSH key added to all instances created with this plan."
-  nullable    = false
-  type        = string
-}
-variable "ssh_private_key" {
-  description = "File name containing private SSH key used for remote execution on instances."
-  nullable    = false
-  sensitive   = true
-  type        = string
-}
-variable "route_53_zone_id" {
-  description = "Zone identifier for the Route 53 instance."
-  nullable    = false
-  type        = string
-}
+
 
 
 #
@@ -84,11 +24,11 @@ variable "route_53_zone_id" {
 #
 provider "aws" {
   profile = "default"
-  region  = "us-east-1"
+  region  = var.aws_region
 
   default_tags {
     tags = {
-      Environment = "sdlc1"
+      Environment = var.environment_name
       Service     = "Example"
     }
   }
@@ -102,37 +42,37 @@ data "aws_route53_zone" "dns_zone" {
 }
 
 # Create a VPC
-resource "aws_vpc" "sdlc1_vpc" {
+resource "aws_vpc" "lab_vpc" {
   cidr_block           = "10.0.0.0/16"
   enable_dns_hostnames = true
   enable_dns_support   = true
   tags = {
-    Name = "sdlc1-vpc"
+    Name = "${var.environment_name}-vpc"
   }
 }
 
-resource "aws_internet_gateway" "sdlc1_vpc_gw" {
-  vpc_id = aws_vpc.sdlc1_vpc.id
+resource "aws_internet_gateway" "vpc_gw" {
+  vpc_id = aws_vpc.lab_vpc.id
 
   tags = {
-    Name = "sdlc1-eip"
+    Name = "${var.environment_name}-eip"
   }
 }
 
-resource "aws_subnet" "sdlc1_subnet" {
+resource "aws_subnet" "lab_subnet" {
   availability_zone       = "us-east-1a"
-  cidr_block              = cidrsubnet(aws_vpc.sdlc1_vpc.cidr_block, 3, 1)
+  cidr_block              = cidrsubnet(aws_vpc.lab_vpc.cidr_block, 3, 1)
   map_public_ip_on_launch = true
   tags = {
-    Name = "sdlc1-subnet"
+    Name = "${var.environment_name}-subnet"
   }
-  vpc_id = aws_vpc.sdlc1_vpc.id
+  vpc_id = aws_vpc.lab_vpc.id
 
-  depends_on = [aws_internet_gateway.sdlc1_vpc_gw]
+  depends_on = [aws_internet_gateway.vpc_gw]
 }
 
 # resource "aws_network_interface" "sdlc1-sni" {
-#   subnet_id   = aws_subnet.sdlc1_subnet.id
+#   subnet_id   = aws_subnet.lab_subnet.id
 
 #   tags = {
 #     Name = "primary_network_interface"
@@ -141,7 +81,7 @@ resource "aws_subnet" "sdlc1_subnet" {
 
 resource "aws_security_group" "sdlc1_ssh_sg" {
   name   = "allow-ssh-sg"
-  vpc_id = aws_vpc.sdlc1_vpc.id
+  vpc_id = aws_vpc.lab_vpc.id
   ingress {
     cidr_blocks = [
       "0.0.0.0/0"
@@ -159,12 +99,12 @@ resource "aws_security_group" "sdlc1_ssh_sg" {
   }
 
   tags = {
-    Name = "sdlc1-ssh-sg"
+    Name = "${var.environment_name}-ssh-sg"
   }
 }
 resource "aws_security_group" "sdlc1_web_sg" {
   name   = "allow-all-sg"
-  vpc_id = aws_vpc.sdlc1_vpc.id
+  vpc_id = aws_vpc.lab_vpc.id
   ingress {
     cidr_blocks = [
       "0.0.0.0/0"
@@ -182,12 +122,12 @@ resource "aws_security_group" "sdlc1_web_sg" {
   }
 
   tags = {
-    Name = "sdlc1-web-sg"
+    Name = "${var.environment_name}-web-sg"
   }
 }
 resource "aws_security_group" "sdlc1_squid_sg" {
   name   = "allow-squid-sg"
-  vpc_id = aws_vpc.sdlc1_vpc.id
+  vpc_id = aws_vpc.lab_vpc.id
   ingress {
     cidr_blocks = [
       "0.0.0.0/0"
@@ -205,12 +145,12 @@ resource "aws_security_group" "sdlc1_squid_sg" {
   }
 
   tags = {
-    Name = "sdlc1-squid-sg"
+    Name = "${var.environment_name}-squid-sg"
   }
 }
 resource "aws_security_group" "sdlc1_squid_tls_sg" {
   name   = "allow-squid-tls-sg"
-  vpc_id = aws_vpc.sdlc1_vpc.id
+  vpc_id = aws_vpc.lab_vpc.id
   ingress {
     cidr_blocks = [
       "0.0.0.0/0"
@@ -228,13 +168,13 @@ resource "aws_security_group" "sdlc1_squid_tls_sg" {
   }
 
   tags = {
-    Name = "sdlc1-squid-tls-sg"
+    Name = "${var.environment_name}-squid-tls-sg"
   }
 }
 
 resource "aws_security_group" "sdlc1_registry_tls_sg" {
   name   = "allow-registry-tls-sg"
-  vpc_id = aws_vpc.sdlc1_vpc.id
+  vpc_id = aws_vpc.lab_vpc.id
   ingress {
     cidr_blocks = [
       "0.0.0.0/0"
@@ -252,7 +192,7 @@ resource "aws_security_group" "sdlc1_registry_tls_sg" {
   }
 
   tags = {
-    Name = "sdlc1-registry-tls-sg"
+    Name = "${var.environment_name}-registry-tls-sg"
   }
 }
 
@@ -262,7 +202,7 @@ resource "aws_key_pair" "deployer" {
   public_key = file("${var.ssh_public_key}")
 
   tags = {
-    Name = "sdlc1-ssh-key"
+    Name = "${var.environment_name}-ssh-key"
   }
 }
 
@@ -275,7 +215,7 @@ resource "aws_route53_record" "bastion-dns" {
   name            = var.bastion_hostname
   type            = "A"
   ttl             = "300"
-  records         = [aws_eip.sdlc1_lb.public_ip]
+  records         = [aws_instance.bastion_instance.public_ip]
 }
 
 
@@ -283,8 +223,8 @@ resource "aws_route53_record" "bastion-dns" {
 # Create registry instance in the VPC
 #
 resource "aws_network_interface" "sdlc1_registry_nic" {
-  subnet_id  = aws_subnet.sdlc1_subnet.id
-  private_ip = cidrhost(aws_subnet.sdlc1_subnet.cidr_block, 1)
+  subnet_id  = aws_subnet.lab_subnet.id
+  # private_ip = cidrhost(aws_subnet.lab_subnet.cidr_block, 1)
   security_groups = [
     aws_security_group.sdlc1_ssh_sg.id,
     aws_security_group.sdlc1_squid_tls_sg.id
@@ -294,14 +234,16 @@ resource "aws_network_interface" "sdlc1_registry_nic" {
     device_index = 1
   }
   tags = {
-    Name = "sdlc1-registry-nic"
+    Name = "${var.environment_name}-registry-nic"
   }
 }
+
+
 resource "aws_instance" "registry_instance" {
   # RHEL 8.4
   ami = "ami-0b0af3577fe5e3532"
 
-  availability_zone = "us-east-1a"
+  availability_zone = "${var.aws_region}a"
 
   # Establishes connection to be used by all
   # generic remote provisioners (i.e. file/remote-exec)
@@ -312,19 +254,19 @@ resource "aws_instance" "registry_instance" {
   root_block_device {
     delete_on_termination = true
     tags = {
-      Name = "sdlc1-registry-block"
+      Name = "${var.environment_name}-registry-block"
     }
     volume_size = 256
     volume_type = "gp2"
   }
-  subnet_id = aws_subnet.sdlc1_subnet.id
+  subnet_id = aws_subnet.lab_subnet.id
   vpc_security_group_ids = [
     aws_security_group.sdlc1_ssh_sg.id,
     aws_security_group.sdlc1_registry_tls_sg.id
   ]
 
   tags = {
-    Name = "sdlc1-registry"
+    Name = "${var.environment_name}-registry"
   }
 }
 
@@ -333,7 +275,7 @@ resource "aws_instance" "bastion_instance" {
   # RHEL 8.4
   ami = "ami-0b0af3577fe5e3532"
 
-  availability_zone = "us-east-1a"
+  availability_zone = "${var.aws_region}a"
 
   # Establishes connection to be used by all
   # generic remote provisioners (i.e. file/remote-exec)
@@ -341,7 +283,7 @@ resource "aws_instance" "bastion_instance" {
   key_name      = aws_key_pair.deployer.key_name
   instance_type = "c6a.large"
 
-  subnet_id = aws_subnet.sdlc1_subnet.id
+  subnet_id     = aws_subnet.lab_subnet.id
   vpc_security_group_ids = [
     aws_security_group.sdlc1_ssh_sg.id,
     aws_security_group.sdlc1_web_sg.id,
@@ -350,33 +292,33 @@ resource "aws_instance" "bastion_instance" {
   ]
 
   tags = {
-    Name = "sdlc1-bastion"
+    Name = "${var.environment_name}-bastion"
   }
 }
 
 #
 #
 #
-resource "aws_eip" "sdlc1_lb" {
+resource "aws_eip" "lab_lb" {
   instance = aws_instance.bastion_instance.id
   vpc      = true
 
   tags = {
-    Name = "sdlc1-eip"
+    Name = "${var.environment_name}-eip"
   }
 }
 
 #
 #
 #
-resource "aws_route_table" "sdlc1_vpc_route_table" {
-  vpc_id = aws_vpc.sdlc1_vpc.id
+resource "aws_route_table" "lab_vpc_route_table" {
+  vpc_id = aws_vpc.lab_vpc.id
   route {
     cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.sdlc1_vpc_gw.id
+    gateway_id = aws_internet_gateway.vpc_gw.id
   }
   tags = {
-    Name = "sdlc1-vpc-route-table"
+    Name = "${var.environment_name}-vpc-route-table"
   }
 }
 
@@ -384,16 +326,30 @@ resource "aws_route_table" "sdlc1_vpc_route_table" {
 #
 #
 resource "aws_route_table_association" "subnet_association" {
-  subnet_id      = aws_subnet.sdlc1_subnet.id
-  route_table_id = aws_route_table.sdlc1_vpc_route_table.id
+  subnet_id      = aws_subnet.lab_subnet.id
+  route_table_id = aws_route_table.lab_vpc_route_table.id
 }
 
 resource "null_resource" "configure-registry" {
+  depends_on = [
+    aws_instance.bastion_instance,
+    aws_instance.registry_instance
+  ]
   connection {
-    private_key = file("${var.ssh_private_key}")
-    host        = aws_instance.registry_instance.public_ip
-    type        = "ssh"
-    user        = "ec2-user"
+    bastion_host        = aws_instance.bastion_instance.public_ip
+    bastion_host_key    = file("${var.ssh_public_key}")
+    bastion_port        = 22
+    bastion_user        = "ec2-user"
+    bastion_private_key = file("${var.ssh_private_key}")
+    host                = aws_instance.registry_instance.public_ip
+    private_key         = file("${var.ssh_private_key}")
+    type                = "ssh"
+    user                = "ec2-user"
+  }
+
+  provisioner "file" {
+    source      = "scripts/clone-ocp-images.sh"
+    destination = "/tmp/clone-ocp-images.sh"
   }
 
   provisioner "file" {
@@ -409,21 +365,31 @@ resource "null_resource" "configure-registry" {
   provisioner "remote-exec" {
     inline = [
       "chmod +x /tmp/register-rhel.sh",
-      "sudo /tmp/register-rhel.sh ${var.rhsm_username} ${var.rhsm_password} | grep -v username | grep -v password > /tmp/register-rhel.txt 2>&1",
+      "sudo /tmp/register-rhel.sh aws-${var.environment_name}-registry ${var.rhsm_username} ${var.rhsm_password} | grep -v username | grep -v password > /tmp/register-rhel.txt 2>&1",
     ]
   }
 
   provisioner "remote-exec" {
     inline = [
       "chmod +x /tmp/install-quay.sh",
-      "sudo /tmp/install-quay.sh ${var.quay_hostname} ${var.registry_username} ${var.registry_password} ${var.rhel_pull_secret} | grep -v username | grep -v password > /tmp/install-quay.txt 2>&1",
+      "sudo /tmp/install-quay.sh ${var.quay_hostname} ${var.registry_username} ${var.registry_password} | grep -v ${var.registry_password} > /tmp/install-quay.txt 2>&1",
+    ]
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "chmod +x /tmp/clone-ocp-images.sh",
+      "/tmp/clone-ocp-images.sh ${var.quay_hostname} ${var.registry_username} ${var.registry_password} ${var.rhel_pull_secret} | grep -v username | grep -v password > /tmp/clone-ocp-images.txt 2>&1",
     ]
   }
 }
 
 # https://www.devopsschool.com/blog/how-to-run-provisioners-code-after-resources-is-created-in-terraform/
 resource "null_resource" "configure-squid" {
-  # depends_on = [aws_instance.bastion_instance]
+  depends_on = [
+    aws_instance.bastion_instance,
+    aws_instance.registry_instance
+  ]
 
   connection {
     private_key = file("${var.ssh_private_key}")
@@ -450,14 +416,14 @@ resource "null_resource" "configure-squid" {
   provisioner "remote-exec" {
     inline = [
       "chmod +x /tmp/register-rhel.sh",
-      "sudo /tmp/register-rhel.sh ${var.rhsm_username} ${var.rhsm_password} | grep -v username | grep -v password > /tmp/register-rhel.txt 2>&1",
+      "sudo /tmp/register-rhel.sh aws-${var.environment_name}-bastion ${var.rhsm_username} ${var.rhsm_password} | grep -v username | grep -v password > /tmp/register-rhel.txt 2>&1",
     ]
   }
 
   provisioner "remote-exec" {
     inline = [
       "chmod +x /tmp/install-squid.sh",
-      "sudo /tmp/install-squid.sh ${var.bastion_hostname} 1.1.1.1 ${var.cert_owner} | grep -v username | grep -v password > /tmp/install-squid.txt 2>&1",
+      "sudo /tmp/install-squid.sh ${var.bastion_hostname} ${aws_instance.registry_instance.public_ip} ${var.cert_owner} | grep -v username | grep -v password > /tmp/install-squid.txt 2>&1",
     ]
   }
 }
