@@ -42,7 +42,7 @@ function check_install_oc() {
     fi
 
     if [ ${install} -eq 1 ]; then
-        echo "ERROR: Installation of oc CLI failed." \
+        echo "ERROR: Installation of oc CLI failed."
     fi
 
     return ${install}
@@ -67,6 +67,8 @@ function clone_ocp() {
         -p "${registry_pwd}" \
         "${quay_url}" \
         --tls-verify=false \
+    && echo "INFO: Registry is working" \
+    || result=1
 
     export LOCAL_REGISTRY="${quay_hostname}"
     export LOCAL_REPOSITORY=ocp4/openshift4
@@ -75,13 +77,8 @@ function clone_ocp() {
     export LOCAL_SECRET_JSON=mirror-registry.conf
     export RELEASE_NAME="ocp-release"
     export ARCHITECTURE=x86_64
-    mirror_pull_secret=pull-secret.txt \
-    && podman login --authfile "${mirror_pull_secret}" \
-        -u "${registry_user}" \
-        -p "${registry_pwd}" \
-        "${quay_url}" \
-        --tls-verify=false \
-    && quay_images_dir="${quay_root_dir}/removable" \
+    
+    quay_images_dir="${quay_root_dir}/removable" \
     && mkdir -p "${quay_images_dir}" \
     && export REMOVABLE_MEDIA_PATH="${quay_images_dir}" \
     && echo "INFO: Generating pull secret." \

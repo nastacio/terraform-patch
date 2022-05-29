@@ -70,7 +70,7 @@ function configure_squid() {
     && sed -i "s/%%REGISTRY_IP%%/${quay_ip}/" "${tmp_squid_conf}" \
     && rm -rf /etc/squid/squid.conf.old \
     && mv /etc/squid/squid.conf /etc/squid/squid.conf.old \
-    && cp /"${tmp_squid_conf}" /etc/squid/squid.conf \
+    && cp "${tmp_squid_conf}" /etc/squid/squid.conf \
     && systemctl restart squid \
     && systemctl status squid \
     && echo "INFO: Squid restart complete." \
