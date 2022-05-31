@@ -60,8 +60,20 @@ resource "aws_internet_gateway" "vpc_gw" {
 }
 
 resource "aws_subnet" "lab_subnet" {
-  availability_zone       = "us-east-1a"
+  availability_zone       = "${var.aws_region}a"
   cidr_block              = cidrsubnet(aws_vpc.lab_vpc.cidr_block, 3, 1)
+  map_public_ip_on_launch = true
+  tags = {
+    Name = "${var.environment_name}-subnet"
+  }
+  vpc_id = aws_vpc.lab_vpc.id
+
+  depends_on = [aws_internet_gateway.vpc_gw]
+}
+
+resource "aws_subnet" "lab_subnet_private" {
+  availability_zone       = "${var.aws_region}a"
+  cidr_block              = cidrsubnet(aws_vpc.lab_vpc.cidr_block, 3, 7)
   map_public_ip_on_launch = true
   tags = {
     Name = "${var.environment_name}-subnet"
@@ -324,6 +336,85 @@ resource "aws_route_table_association" "subnet_association" {
   route_table_id = aws_route_table.lab_vpc_route_table.id
 }
 
+resource "aws_eip" "natgw_a_eip" {
+  vpc = true
+}
+
+resource "aws_nat_gateway" "natgw_a" {
+  allocation_id = aws_eip.natgw_a_eip.id
+  subnet_id     = aws_subnet.lab_subnet.id
+
+  tags = {
+    Name = "${var.environment_name}-nat-zone-a"
+  }
+}
+
+
+resource "aws_route_table" "lab_vpc_route_table_private" {
+  vpc_id = aws_vpc.lab_vpc.id
+
+  route {
+      cidr_block = "0.0.0.0/0"
+      gateway_id = aws_nat_gateway.natgw_a.id
+  }
+
+  tags = {
+    Name = "${var.environment_name}-vpc-route-table-private"
+  }
+}
+
+resource "aws_route_table_association" "subnet_association_private" {
+    subnet_id      = aws_subnet.lab_subnet_private.id
+    route_table_id = aws_route_table.lab_vpc_route_table_private.id
+}
+
+/*
+  Update NAT instance with OCP rules
+*/
+resource "aws_security_group" "vpc-nat" {
+    name = "${var.environment_name}-vpc-ocp-nat"
+    description = "Allow traffic to pass from the private subnet to the internet and allow incoming"
+
+    ingress {
+        from_port = 80
+        to_port = 80
+        protocol = "tcp"
+        cidr_blocks = [var.ocp_private_subnet_cidr_a]
+
+    }
+    ingress {
+        from_port = 443
+        to_port = 443
+        protocol = "tcp"
+        cidr_blocks = [var.ocp_private_subnet_cidr_a]
+    }
+    ingress {
+        from_port = 22
+        to_port = 22
+        protocol = "tcp"
+        cidr_blocks = ["0.0.0.0/0"]
+    }
+    ingress {
+        from_port = 1024
+        to_port = 65535
+        protocol = "tcp"
+        cidr_blocks = [var.ocp_private_subnet_cidr_a]
+    }
+
+    egress {
+        from_port = 0
+        to_port = 65535
+        protocol = "tcp"
+        cidr_blocks = [var.ocp_private_subnet_cidr_a]
+    }
+
+    vpc_id = aws_vpc.lab_vpc.id
+
+    tags = {
+        Name = "OCPNATSG"
+    }
+}
+
 resource "null_resource" "configure_registry" {
   # https://www.terraform.io/language/resources/provisioners/connection
   connection {
@@ -417,5 +508,10 @@ resource "null_resource" "configure_squid" {
 
 output "vpc_id" {
   value     = aws_vpc.lab_vpc.id
+  sensitive = true
+}
+
+output "aws_internet_gateway_id" {
+  value     = aws_internet_gateway.vpc_gw.id
   sensitive = true
 }

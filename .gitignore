@@ -3,3 +3,5 @@ terraform.tfstate.backup
 .terraform/*
 ~/tmp/sdlc1-cpbu.tfstate
 terraform.tfstate
+temp/.openshift_install.log
+temp/install-config copy.yaml

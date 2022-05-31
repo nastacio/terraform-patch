@@ -70,3 +70,12 @@ variable "route_53_zone_id" {
   nullable    = false
   type        = string
 }
+variable "ocp_public_subnet_cidr_a" {
+    description = "CIDR for the OCP Public Subnet"
+    default = "10.0.16.0/20"
+}
+
+variable "ocp_private_subnet_cidr_a" {
+    description = "CIDR for the OCP Private Subnet"
+    default = "10.0.128.0/20"
+}
